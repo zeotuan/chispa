@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from pyspark.sql import DataFrame
 
+from chispa.common_enums import DataFrameDiffOutputFormat, OutputFormat
 from chispa.default_formats import DefaultFormats
 from chispa.formatting import Color, Format, FormattingConfig, Style
 
@@ -62,10 +63,12 @@ __all__ = (
     "Chispa",
     "Color",
     "ColumnsNotEqualError",
+    "DataFrameDiffOutputFormat",
     "DataFramesNotEqualError",
     "DefaultFormats",
     "Format",
     "FormattingConfig",
+    "OutputFormat",
     "SchemasNotEqualError",
     "Style",
     "assert_approx_column_equality",
