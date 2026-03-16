@@ -20,6 +20,8 @@ class FormattingConfig:
         matched_rows: Format | dict[str, str | list[str]] = Format(Color.BLUE),
         mismatched_cells: Format | dict[str, str | list[str]] = Format(Color.RED, [Style.UNDERLINE]),
         matched_cells: Format | dict[str, str | list[str]] = Format(Color.BLUE),
+        output_format: str | None = None,
+        schema_output_format: str | None = None,
     ):
         """
         Initializes the FormattingConfig with given or default formatting.
@@ -37,14 +39,32 @@ class FormattingConfig:
             matched_rows (Format | dict): Format or dictionary for matched rows.
             mismatched_cells (Format | dict): Format or dictionary for mismatched cells.
             matched_cells (Format | dict): Format or dictionary for matched cells.
+            output_format (str | None): DataFrame diff output format ('side_by_side' or 'separate_lines').
+            schema_output_format (str | None): Schema diff output format ('table' or 'tree').
 
         Raises:
             ValueError: If the dictionary contains invalid keys or values.
         """
+        from chispa.common_enums import DataFrameDiffOutputFormat, OutputFormat
+
         self.mismatched_rows: Format = self._parse_format(mismatched_rows)
         self.matched_rows: Format = self._parse_format(matched_rows)
         self.mismatched_cells: Format = self._parse_format(mismatched_cells)
         self.matched_cells: Format = self._parse_format(matched_cells)
+
+        if isinstance(output_format, DataFrameDiffOutputFormat):
+            self.output_format = output_format
+        elif isinstance(output_format, str):
+            self.output_format = DataFrameDiffOutputFormat(output_format)
+        else:
+            self.output_format = DataFrameDiffOutputFormat.SIDE_BY_SIDE
+
+        if isinstance(schema_output_format, OutputFormat):
+            self.schema_output_format = schema_output_format
+        elif isinstance(schema_output_format, str):
+            self.schema_output_format = OutputFormat(schema_output_format)
+        else:
+            self.schema_output_format = OutputFormat.TABLE
 
     def _parse_format(self, format: Format | dict[str, str | list[str]]) -> Format:
         if isinstance(format, Format):

@@ -50,8 +50,10 @@ def assert_df_equality(
     df1 = reduce(lambda acc, fn: fn(acc), transforms, df1)
     df2 = reduce(lambda acc, fn: fn(acc), transforms, df2)
 
-    assert_schema_equality(df1.schema, df2.schema, ignore_nullable, ignore_metadata)
+    assert_schema_equality(df1.schema, df2.schema, ignore_nullable, ignore_metadata,
+                           formats=formats)
 
+    columns = list(df1.columns)
     if allow_nan_equality:
         assert_generic_rows_equality(
             df1.collect(),
@@ -60,6 +62,7 @@ def assert_df_equality(
             {"allow_nan_equality": True},
             underline_cells=underline_cells,
             formats=formats,
+            columns=columns,
         )
     else:
         assert_basic_rows_equality(
@@ -67,6 +70,7 @@ def assert_df_equality(
             df2.collect(),
             underline_cells=underline_cells,
             formats=formats,
+            columns=columns,
         )
 
 
@@ -107,8 +111,9 @@ def assert_approx_df_equality(
     df1 = reduce(lambda acc, fn: fn(acc), transforms, df1)
     df2 = reduce(lambda acc, fn: fn(acc), transforms, df2)
 
-    assert_schema_equality(df1.schema, df2.schema, ignore_nullable)
+    assert_schema_equality(df1.schema, df2.schema, ignore_nullable, formats=formats)
 
+    columns = list(df1.columns)
     if precision != 0:
         assert_generic_rows_equality(
             df1.collect(),
@@ -116,10 +121,12 @@ def assert_approx_df_equality(
             are_rows_approx_equal,
             {"precision": precision, "allow_nan_equality": allow_nan_equality},
             formats=formats,
+            columns=columns,
         )
     elif allow_nan_equality:
         assert_generic_rows_equality(
-            df1.collect(), df2.collect(), are_rows_equal_enhanced, {"allow_nan_equality": True}, formats=formats
+            df1.collect(), df2.collect(), are_rows_equal_enhanced, {"allow_nan_equality": True},
+            formats=formats, columns=columns,
         )
     else:
-        assert_basic_rows_equality(df1.collect(), df2.collect(), formats=formats)
+        assert_basic_rows_equality(df1.collect(), df2.collect(), formats=formats, columns=columns)

@@ -123,8 +123,24 @@ def handle_schemas_not_equal(s1: StructType, s2: StructType, ignore_nullable: bo
 
 
 def assert_schema_equality(
-    s1: StructType, s2: StructType, ignore_nullable: bool = False, ignore_metadata: bool = False
+    s1: StructType, s2: StructType, ignore_nullable: bool = False, ignore_metadata: bool = False,
+    formats: typing.Any = None,
 ) -> None:
+    from chispa.common_enums import OutputFormat
+    from chispa.formatting import FormattingConfig
+
+    schema_output_format = OutputFormat.TABLE
+    if formats and isinstance(formats, FormattingConfig):
+        schema_output_format = formats.schema_output_format
+
+    if schema_output_format == OutputFormat.TREE:
+        from chispa.schema_tree_comparer import build_comparison, are_fields_equal, tree_schema_mismatch_message
+        diff_tree = build_comparison(s1, s2)
+        if not are_fields_equal(diff_tree, ignore_nullable=ignore_nullable, ignore_metadata=ignore_metadata):
+            msg = tree_schema_mismatch_message(diff_tree, ignore_nullable=ignore_nullable, ignore_metadata=ignore_metadata)
+            raise SchemasNotEqualError(msg)
+        return
+
     if not ignore_nullable and not ignore_metadata:
         assert_basic_schema_equality(s1, s2)
     else:

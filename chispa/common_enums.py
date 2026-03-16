@@ -8,6 +8,11 @@ class OutputFormat(str, Enum):
     TREE = "tree"
 
 
+class DataFrameDiffOutputFormat(str, Enum):
+    SIDE_BY_SIDE = "side_by_side"
+    SEPARATE_LINES = "separate_lines"
+
+
 class TypeName(str, Enum):
     ARRAY = "array"
     STRUCT = "struct"

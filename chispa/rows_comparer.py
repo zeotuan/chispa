@@ -8,11 +8,14 @@ from prettytable import PrettyTable
 from pyspark.sql import Row
 
 import chispa
+from chispa.common_enums import DataFrameDiffOutputFormat
 from chispa.formatting import FormattingConfig, format_string
+from chispa.pretty_diff import cell_to_string, show_diff_separate_lines, show_diff_side_by_side
 
 
 def assert_basic_rows_equality(
-    rows1: list[Row], rows2: list[Row], underline_cells: bool = False, formats: FormattingConfig | None = None
+    rows1: list[Row], rows2: list[Row], underline_cells: bool = False,
+    formats: FormattingConfig | None = None, columns: list[str] | None = None,
 ) -> None:
     if not formats:
         formats = FormattingConfig()
@@ -20,35 +23,15 @@ def assert_basic_rows_equality(
         formats = FormattingConfig._from_arbitrary_dataclass(formats)
 
     if rows1 != rows2:
-        t = PrettyTable(["df1", "df2"])
-        zipped = list(zip_longest(rows1, rows2))
-        all_rows_equal = True
+        if formats.output_format == DataFrameDiffOutputFormat.SEPARATE_LINES and columns is not None:
+            all_rows_equal, msg = show_diff_separate_lines(columns, rows1, rows2, formats=formats)
+            if not all_rows_equal:
+                raise chispa.DataFramesNotEqualError("\n" + msg)
+            return
 
-        for r1, r2 in zipped:
-            if r1 is None and r2 is not None:
-                t.add_row([None, format_string(str(r2), formats.mismatched_rows)])
-                all_rows_equal = False
-            elif r1 is not None and r2 is None:
-                t.add_row([format_string(str(r1), formats.mismatched_rows), None])
-                all_rows_equal = False
-            else:
-                r_zipped = list(zip_longest(r1.__fields__, r2.__fields__))
-                r1_string = []
-                r2_string = []
-                for r1_field, r2_field in r_zipped:
-                    if r1[r1_field] != r2[r2_field]:
-                        all_rows_equal = False
-                        r1_string.append(format_string(f"{r1_field}={r1[r1_field]}", formats.mismatched_cells))
-                        r2_string.append(format_string(f"{r2_field}={r2[r2_field]}", formats.mismatched_cells))
-                    else:
-                        r1_string.append(format_string(f"{r1_field}={r1[r1_field]}", formats.matched_cells))
-                        r2_string.append(format_string(f"{r2_field}={r2[r2_field]}", formats.matched_cells))
-                r1_res = ", ".join(r1_string)
-                r2_res = ", ".join(r2_string)
-
-                t.add_row([r1_res, r2_res])
-        if all_rows_equal is False:
-            raise chispa.DataFramesNotEqualError("\n" + t.get_string())
+        all_rows_equal, msg = show_diff_side_by_side(rows1, rows2, formats=formats)
+        if not all_rows_equal:
+            raise chispa.DataFramesNotEqualError("\n" + msg)
 
 
 def assert_generic_rows_equality(
@@ -58,6 +41,7 @@ def assert_generic_rows_equality(
     row_equality_fun_args: dict[str, Any],
     underline_cells: bool = False,
     formats: FormattingConfig | None = None,
+    columns: list[str] | None = None,
 ) -> None:
     if not formats:
         formats = FormattingConfig()
@@ -66,41 +50,58 @@ def assert_generic_rows_equality(
 
     df1_rows = rows1
     df2_rows = rows2
+
+    if formats.output_format == DataFrameDiffOutputFormat.SEPARATE_LINES and columns is not None:
+        any_mismatch = any(
+            (r1 is None) != (r2 is None) or (r1 is not None and not row_equality_fun(r1, r2, **row_equality_fun_args))
+            for r1, r2 in zip_longest(df1_rows, df2_rows)
+        )
+        if any_mismatch:
+            _, msg = show_diff_separate_lines(columns, rows1, rows2, formats=formats)
+            raise chispa.DataFramesNotEqualError("\n" + msg)
+        return
+
     zipped = list(zip_longest(df1_rows, df2_rows))
     t = PrettyTable(["df1", "df2"])
-    all_rows_equal = True
-    for r1, r2 in zipped:
-        # rows are not equal when one is None and the other isn't
-        if (r1 is None) ^ (r2 is None):
-            all_rows_equal = False
-            t.add_row([
-                format_string(str(r1), formats.mismatched_rows),
-                format_string(str(r2), formats.mismatched_rows),
-            ])
-        # rows are equal
-        elif row_equality_fun(r1, r2, **row_equality_fun_args):
-            r1_string = ", ".join(map(lambda f: f"{f}={r1[f]}", r1.__fields__))
-            r2_string = ", ".join(map(lambda f: f"{f}={r2[f]}", r2.__fields__))
-            t.add_row([
-                format_string(r1_string, formats.matched_rows),
-                format_string(r2_string, formats.matched_rows),
-            ])
-        # otherwise, rows aren't equal
-        else:
-            r_zipped = list(zip_longest(r1.__fields__, r2.__fields__))
-            r1_string_list: list[str] = []
-            r2_string_list: list[str] = []
-            for r1_field, r2_field in r_zipped:
-                if r1[r1_field] != r2[r2_field]:
-                    all_rows_equal = False
-                    r1_string_list.append(format_string(f"{r1_field}={r1[r1_field]}", formats.mismatched_cells))
-                    r2_string_list.append(format_string(f"{r2_field}={r2[r2_field]}", formats.mismatched_cells))
-                else:
-                    r1_string_list.append(format_string(f"{r1_field}={r1[r1_field]}", formats.matched_cells))
-                    r2_string_list.append(format_string(f"{r2_field}={r2[r2_field]}", formats.matched_cells))
-            r1_res = ", ".join(r1_string_list)
-            r2_res = ", ".join(r2_string_list)
-
-            t.add_row([r1_res, r2_res])
-    if all_rows_equal is False:
+    row_results = [
+        _generic_row_result(r1, r2, row_equality_fun, row_equality_fun_args, formats)
+        for r1, r2 in zipped
+    ]
+    for table_row, _ in row_results:
+        t.add_row(table_row)
+    all_rows_equal = all(eq for _, eq in row_results)
+    if not all_rows_equal:
         raise chispa.DataFramesNotEqualError("\n" + t.get_string())
+
+
+def _generic_row_result(
+    r1: object | None, r2: object | None,
+    row_equality_fun: Callable, row_equality_fun_args: dict[str, Any],  # type: ignore[type-arg]
+    formats: FormattingConfig,
+) -> tuple[list, bool]:
+    """Returns (table_row, is_equal) for a pair of rows."""
+    if (r1 is None) ^ (r2 is None):
+        return [
+            format_string(str(r1), formats.mismatched_rows),
+            format_string(str(r2), formats.mismatched_rows),
+        ], False
+
+    if row_equality_fun(r1, r2, **row_equality_fun_args):
+        r1_string = ", ".join(f"{f}={cell_to_string(r1[f])}" for f in r1.__fields__)
+        r2_string = ", ".join(f"{f}={cell_to_string(r2[f])}" for f in r2.__fields__)
+        return [
+            format_string(r1_string, formats.matched_rows),
+            format_string(r2_string, formats.matched_rows),
+        ], True
+
+    r_zipped = list(zip_longest(r1.__fields__, r2.__fields__))
+    mismatches = [r1[f1] != r2[f2] for f1, f2 in r_zipped]
+    r1_string_list = [
+        format_string(f"{f1}={cell_to_string(r1[f1])}", formats.mismatched_cells if m else formats.matched_cells)
+        for (f1, _), m in zip(r_zipped, mismatches)
+    ]
+    r2_string_list = [
+        format_string(f"{f2}={cell_to_string(r2[f2])}", formats.mismatched_cells if m else formats.matched_cells)
+        for (_, f2), m in zip(r_zipped, mismatches)
+    ]
+    return [", ".join(r1_string_list), ", ".join(r2_string_list)], not any(mismatches)
